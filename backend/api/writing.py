@@ -1,28 +1,47 @@
 """
 写作 API - 核心写作能力
 """
+import asyncio
+import json
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from backend.models.schemas import WritingRequest, WritingResponse
 from backend.services.writing_engine import WritingEngine
+from backend.services.ai_client import ai_aggregator
 
 router = APIRouter()
 writing_engine = WritingEngine()
 
 
-@router.post("/", response_model=WritingResponse)
-async def write(writing_request: WritingRequest):
+@router.post("/")
+async def write_stream(writing_request: WritingRequest):
     """
-    执行写作任务
-    
-    instruction: 续写/润色/改写/概括
+    流式写作任务，内容实时推送至前端
     """
-    result = await writing_engine.execute(
-        chapter_id=writing_request.chapter_id,
-        instruction=writing_request.instruction,
-        context=writing_request.context
-    )
-    return result
+    async def event_stream():
+        task_type_map = {
+            "大纲": "outline", "续写": "draft", "润色": "polish",
+            "改写": "polish", "概括": "outline"
+        }
+        task_type = task_type_map.get(writing_request.instruction, "draft")
+        prompt = writing_engine._build_prompt(writing_request.instruction, writing_request.context or "")
+
+        try:
+            full_content = []
+            async for chunk, model_name in ai_aggregator.stream_generate(task_type, prompt):
+                full_content.append(chunk)
+                # 实时推送每个字符块
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+
+            final_content = "".join(full_content)
+            tension_score = writing_engine.tension_analyzer.analyze(final_content)["overall"]
+
+            yield f"data: {json.dumps({'type': 'done', 'content': final_content, 'tension_score': tension_score, 'tokens_used': len(final_content) // 4}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/stop/{task_id}")
