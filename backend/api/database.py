@@ -29,6 +29,9 @@ class ProjectResponse(BaseModel):
     id: str
     name: str
     description: Optional[str]
+    novel_type: Optional[str] = None
+    core_elements: Optional[str] = None
+    outline: Optional[str] = None
     target_word_count: int
     created_at: datetime
     updated_at: datetime
@@ -69,6 +72,41 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     db.delete(project)
     db.commit()
     return {"message": "项目已删除"}
+
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    novel_type: Optional[str] = None
+    core_elements: Optional[str] = None
+    outline: Optional[str] = None
+    target_word_count: Optional[int] = None
+
+
+@router.put("/projects/{project_id}", response_model=ProjectResponse)
+def update_project(project_id: str, update: ProjectUpdate, db: Session = Depends(get_db)):
+    """更新项目信息（包括小说类型、核心元素、大纲）"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    if update.name is not None:
+        project.name = update.name
+    if update.description is not None:
+        project.description = update.description
+    if update.novel_type is not None:
+        project.novel_type = update.novel_type
+    if update.core_elements is not None:
+        project.core_elements = update.core_elements
+    if update.outline is not None:
+        project.outline = update.outline
+    if update.target_word_count is not None:
+        project.target_word_count = update.target_word_count
+
+    project.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(project)
+    return project
 
 
 # ============ 章节 ============

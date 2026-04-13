@@ -16,10 +16,13 @@ Base = declarative_base()
 
 class Project(Base):
     __tablename__ = "projects"
-    
+
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     description = Column(Text)
+    novel_type = Column(String)  # 小说类型（都市言情/玄幻修仙/悬疑推理/科幻未来/武侠江湖/校园青春）
+    core_elements = Column(Text)  # 核心元素（JSON数组，最多3个）
+    outline = Column(Text)  # AI 生成的大纲
     target_word_count = Column(Integer, default=300000)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

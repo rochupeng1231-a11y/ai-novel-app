@@ -22,6 +22,15 @@ async function apiDeleteProject(projectId) {
   await fetch(`${API_BASE}/db/projects/${projectId}`, { method: 'DELETE' });
 }
 
+async function apiUpdateProject(projectId, data) {
+  const res = await fetch(`${API_BASE}/db/projects/${projectId}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
 // ============ 章节 ============
 async function apiCreateChapter(projectId, number, title) {
   const res = await fetch(`${API_BASE}/db/chapters`, {
@@ -60,11 +69,11 @@ async function apiCreateCharacter(projectId, data) {
 }
 
 // ============ 伏笔 ============
-async function apiCreateForeshadow(projectId, keyword, description) {
+async function apiCreateForeshadow(projectId, keyword, description, status = 'planted') {
   const res = await fetch(`${API_BASE}/db/foreshadows`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({project_id: projectId, keyword, description, status: 'planted'})
+    body: JSON.stringify({project_id: projectId, keyword, description, status})
   });
   return res.json();
 }
@@ -91,49 +100,68 @@ async function apiWriteStream(chapterId, instruction, context, callbacks) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let totalChunks = 0;
+  let totalBytes = 0;
 
   let doneCalled = false;
+
+  // 处理一行 SSE 数据
+  function processLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed === '[DONE]') return;
+
+    if (trimmed.startsWith('data: ')) {
+      const dataStr = trimmed.slice(6).trim();
+      if (dataStr === '[DONE]') {
+        doneCalled = true;
+        callbacks.onDone && callbacks.onDone();
+        return;
+      }
+      try {
+        const evt = JSON.parse(dataStr);
+        if (evt.type === 'chunk' && evt.content) {
+          callbacks.onChunk && callbacks.onChunk(evt.content);
+        } else if (evt.type === 'done') {
+          doneCalled = true;
+          callbacks.onDone && callbacks.onDone(evt);
+        } else if (evt.type === 'error') {
+          const msg = evt.message || evt.error?.message || '';
+          if (msg.includes('529') || msg.includes('overloaded') || msg.includes('服务集群负载较高')) {
+            callbacks.onError && callbacks.onError('⚠️ MiniMax服务繁忙（负载过高），请1-2分钟后重试。');
+          } else {
+            callbacks.onError && callbacks.onError(msg);
+          }
+        }
+      } catch (e) {
+        console.warn('[SSE] 解析失败:', dataStr.substring(0, 100));
+      }
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
+    totalChunks++;
+    totalBytes += value.byteLength;
     buffer += decoder.decode(value, { stream: true });
-    let lines = buffer.split('\n');
-    buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === '[DONE]') continue;
-
-      if (trimmed.startsWith('data: ')) {
-        const dataStr = trimmed.slice(6).trim();
-        if (dataStr === '[DONE]') {
-          doneCalled = true;
-          callbacks.onDone && callbacks.onDone();
-          continue;
-        }
-        try {
-          const evt = JSON.parse(dataStr);
-          if (evt.type === 'chunk' && evt.content) {
-            callbacks.onChunk && callbacks.onChunk(evt.content);
-          } else if (evt.type === 'done') {
-            doneCalled = true;
-            callbacks.onDone && callbacks.onDone(evt);
-          } else if (evt.type === 'error') {
-            // 兼容两种格式：{message} 或 {error: {message}}
-            const msg = evt.message || evt.error?.message || '';
-            if (msg.includes('529') || msg.includes('overloaded') || msg.includes('服务集群负载较高')) {
-              callbacks.onError && callbacks.onError('⚠️ MiniMax服务繁忙（负载过高），请1-2分钟后重试。');
-            } else {
-              callbacks.onError && callbacks.onError(msg);
-            }
-          }
-        } catch (e) {
-          // 忽略解析失败的行
-        }
-      }
+    // 处理所有完整的行
+    while (buffer.includes('\n')) {
+      const newlineIndex = buffer.indexOf('\n');
+      const line = buffer.substring(0, newlineIndex);
+      buffer = buffer.substring(newlineIndex + 1);
+      processLine(line);
     }
   }
+
+  // 处理缓冲区中剩余的数据（最后一行可能没有换行符）
+  if (buffer.trim()) {
+    processLine(buffer);
+  }
+
+  console.log(`[SSE] 完成: ${totalChunks} 个 chunk, 共 ${totalBytes} bytes`);
+
   // 流结束后确保 onDone 被调用
   if (!doneCalled) {
     callbacks.onDone && callbacks.onDone();
@@ -144,6 +172,7 @@ window.api = {
   createProject: apiCreateProject,
   getProjects: apiGetProjects,
   deleteProject: apiDeleteProject,
+  updateProject: apiUpdateProject,
   createChapter: apiCreateChapter,
   updateChapter: apiUpdateChapter,
   saveChapterVersion: apiSaveChapterVersion,

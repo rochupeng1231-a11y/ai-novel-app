@@ -62,12 +62,17 @@ async function generateOutline() {
   const elements = selectedElements.length > 0 ? selectedElements.join('、') : '热血激情';
   const outlineChunks = [];
 
-  // 第一步：生成基本大纲（故事主线 + 人物 + 章节标题，不含详细描述）
-  const basicPrompt = `小说类型：【${selectedType.name}】，核心元素：${elements}。请按以下格式生成大纲：
+  // 第一步：生成基本大纲（故事主线 + 人物 + 章节标题 + 关系 + 伏笔）
+  const basicPrompt = `小说类型：【${selectedType.name}】，核心元素：${elements}。
+
+请生成完整大纲，必须包含以下5个部分：
 1. 故事主线（1-2段）
-2. 主要人物（3-5个，格式：姓名 - 身份描述）
-3. 章节结构（8-12章，每章格式：第X章：章节名）
-请只输出大纲，不要详细章节描述。`;
+2. 主要人物（3-5个）
+3. 章节结构（8-12章）
+4. 角色关系
+5. 重要伏笔（3-5个）
+
+格式简洁即可，未完成全部5个部分之前不要停止生成！`;
 
   let hasError = false;
   try {
@@ -124,20 +129,65 @@ async function generateOutline() {
 
   // 解析角色
   const characters = parseCharactersFromOutline(outlineContent);
+  const createdCharacters = [];
   for (const c of characters) {
     try {
-      await api.createCharacter(stateManager.state.currentProject.id, {
+      const char = await api.createCharacter(stateManager.state.currentProject.id, {
         name: c.name,
         personality: c.personality || '',
         alias: '',
         speech_style: '',
         forbidden_topics: []
       });
+      createdCharacters.push(char);
     } catch (e) { console.error('创建角色失败', e); }
   }
 
+  // 构建角色名到ID的映射
+  const characterMap = {};
+  createdCharacters.forEach(c => { characterMap[c.name] = c.id; });
+  console.log('[角色] 映射表:', characterMap);
+
   // 重新加载数据
   await projectModule.loadProjectData();
+
+  // 解析并创建角色关系
+  const relations = parseRelationsFromOutline(outlineContent, characterMap);
+  for (const r of relations) {
+    try {
+      await fetch(`${API_BASE}/relations`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          project_id: stateManager.state.currentProject.id,
+          character_a_id: r.character_a_id,
+          character_b_id: r.character_b_id,
+          relation_type: r.relation_type,
+          description: ''
+        })
+      });
+    } catch (e) { console.error('创建关系失败', e); }
+  }
+
+  // 解析并创建伏笔
+  const foreshadows = parseForeshadowsFromOutline(outlineContent);
+  for (const f of foreshadows) {
+    try {
+      await api.createForeshadow(stateManager.state.currentProject.id, f.keyword, f.description, f.status);
+    } catch (e) { console.error('创建伏笔失败', e); }
+  }
+
+  // 保存项目信息（类型、元素、大纲）到数据库
+  try {
+    await api.updateProject(stateManager.state.currentProject.id, {
+      novel_type: selectedType.name,
+      core_elements: JSON.stringify(selectedElements),
+      outline: outlineContent
+    });
+    console.log('[大纲] 项目信息已保存');
+  } catch (e) {
+    console.error('[大纲] 保存项目信息失败', e);
+  }
 
   // 第二步：逐章生成简介（分批，每批3章）
   setProgressInline(70, '正在生成章节简介（分批）...');
@@ -220,6 +270,64 @@ function parseCharactersFromOutline(outline) {
   }
   console.log('[解析] 角色数量:', characters.length);
   return characters;
+}
+
+// 从大纲文本解析角色关系
+function parseRelationsFromOutline(outline, characterMap) {
+  // characterMap: { name: id } 从角色名到ID的映射
+  const clean = outline.replace(/<[^>]+>/g, '').replace(/\*\*/g, '');
+  const relations = [];
+
+  // 匹配 "角色A —关系— 角色B" 或 "角色A - 关系 - 角色B" 等格式
+  const relPattern = /([^\s—–-]{2,8})\s*[—–-]{1,3}\s*([^\s—–-]{2,8})\s*[—–-]{1,3}\s*([^\s—–-]{2,8})/g;
+  let match;
+  while ((match = relPattern.exec(clean)) !== null) {
+    const charA = match[1].trim();
+    const relType = match[2].trim();
+    const charB = match[3].trim();
+
+    if (characterMap[charA] && characterMap[charB]) {
+      relations.push({
+        character_a_id: characterMap[charA],
+        character_b_id: characterMap[charB],
+        relation_type: relType
+      });
+    }
+  }
+
+  console.log('[解析] 关系数量:', relations.length);
+  return relations;
+}
+
+// 从大纲文本解析伏笔
+function parseForeshadowsFromOutline(outline) {
+  const clean = outline.replace(/<[^>]+>/g, '').replace(/\*\*/g, '');
+  const foreshadows = [];
+
+  // 匹配 "关键词|描述|状态" 格式
+  const fsPattern = /([^\s|]{2,10})\s*\|\s*([^|]{5,50})\s*\|\s*(\([^)]+\))/g;
+  let match;
+  while ((match = fsPattern.exec(clean)) !== null) {
+    const keyword = match[1].trim();
+    const description = match[2].trim();
+    let status = match[3].trim();
+
+    // 解析状态
+    if (status.includes('已埋') || status.includes('pending')) {
+      status = 'planted';
+    } else if (status.includes('已触发') || status.includes('triggered')) {
+      status = 'triggered';
+    } else if (status.includes('已回收') || status.includes('resolved')) {
+      status = 'resolved';
+    } else {
+      status = 'planted';
+    }
+
+    foreshadows.push({ keyword, description, status });
+  }
+
+  console.log('[解析] 伏笔数量:', foreshadows.length);
+  return foreshadows;
 }
 
 function showOutlineSelect() {
