@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 写小说</title>
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/components.css">
+  <style>
+    .main-content { display: flex; flex-direction: column; height: calc(100vh - 52px); overflow: hidden; }
+    
+    /* 步骤指示器 */
+    .step-bar {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .step-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: opacity 0.3s;
+    }
+    .step-indicator.active { color: var(--accent); }
+    .step-indicator .num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--bg-tertiary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .step-indicator.active .num { background: var(--accent); color: white; }
+    
+    /* 步骤内容 */
+    .step-content {
+      display: none;
+      flex: 1;
+      overflow: auto;
+    }
+    .step-content.active { display: flex; }
+    
+    /* 步骤1：新建项目 */
+    #step-project {
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+    }
+    .project-form {
+      background: var(--bg-secondary);
+      padding: 32px;
+      border-radius: 12px;
+      width: 400px;
+    }
+    .project-form h2 { margin-bottom: 24px; text-align: center; }
+    .project-form .input { margin-bottom: 16px; }
+    
+    /* 步骤2：生成大纲 */
+    #step-outline {
+      flex-direction: column;
+      padding: 24px;
+      gap: 16px;
+    }
+    #step-outline textarea {
+      flex: 1;
+      min-height: 200px;
+    }
+    
+    /* 步骤3：章节列表 */
+    #step-chapters {
+      display: none; /* 由主流程控制 */
+    }
+    
+    /* 步骤4：写作 */
+    #step-writing {
+      display: none; /* 由主流程控制 */
+    }
+    
+    /* 写作界面布局 */
+    .writing-layout {
+      display: grid;
+      grid-template-columns: 200px 1fr 200px;
+      flex: 1;
+      overflow: hidden;
+    }
+    .writing-sidebar {
+      background: var(--bg-secondary);
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .writing-main {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .writing-editor {
+      flex: 1;
+      padding: 12px;
+      overflow: hidden;
+    }
+    .writing-editor textarea {
+      width: 100%;
+      height: 100%;
+      resize: none;
+    }
+    .writing-footer {
+      padding: 8px 12px;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    
+    /* 底部状态栏 */
+    .status-bar {
+      padding: 6px 12px;
+      background: var(--bg-tertiary);
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex;
+      gap: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <!-- 顶栏 -->
+    <header class="header">
+      <span class="header-title">AI 写小说</span>
+      <span id="project-name" style="font-size:12px;color:var(--text-secondary);margin-left:16px"></span>
+    </header>
+
+    <!-- 步骤指示 -->
+    <div class="step-bar">
+      <div class="step-indicator active" id="step-ind-1">
+        <span class="num">1</span>
+        <span>新建项目</span>
+      </div>
+      <div class="step-indicator" id="step-ind-2">
+        <span class="num">2</span>
+        <span>生成大纲</span>
+      </div>
+      <div class="step-indicator" id="step-ind-3">
+        <span class="num">3</span>
+        <span>章节管理</span>
+      </div>
+      <div class="step-indicator" id="step-ind-4">
+        <span class="num">4</span>
+        <span>开始写作</span>
+      </div>
+    </div>
+
+    <!-- 步骤1：新建项目 -->
+    <div id="step-project" class="step-content" style="display: flex;">
+      <div class="project-form">
+        <h2>创建新项目</h2>
+        <input id="project-name-input" class="input" placeholder="项目名称，如：我的玄幻小说" value="我的小说">
+        <input id="project-target-input" class="input" type="number" placeholder="目标字数" value="300000">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">
+          目标字数建议：长篇小说30万+，中篇小说10-30万，短篇小说1-10万
+        </div>
+        <button class="btn btn-primary" onclick="app.createProject()" style="width:100%">创建项目</button>
+      </div>
+    </div>
+
+    <!-- 步骤2：生成大纲 -->
+    <div id="step-outline" class="step-content">
+      <div style="font-size:14px;color:var(--text-secondary)">
+        请输入小说概要、题材方向或故事大纲，AI将为你生成完整章节结构
+      </div>
+      <textarea id="outline-prompt" class="textarea" placeholder="示例：一个普通少年在偶然间获得了上古传承，从此踏上了修仙之路。他经历了重重磨难，最终成为一代宗师。期间他遇到了命中注定的爱人，两人携手共创辉煌。"></textarea>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="btn btn-secondary" onclick="app.backToProject()">上一步</button>
+        <button class="btn btn-primary" onclick="app.generateOutline()">生成大纲</button>
+      </div>
+    </div>
+
+    <!-- 步骤3：章节管理 -->
+    <div id="step-chapters" class="step-content">
+      <div class="writing-layout">
+        <!-- 左侧：章节列表 -->
+        <div class="writing-sidebar">
+          <div class="module-section">
+            <div class="module-title">章节</div>
+            <div id="chapter-list"></div>
+            <button class="btn btn-secondary" onclick="app.addChapter()" style="width:100%;margin-top:8px">+ 新建章节</button>
+          </div>
+          <div class="module-section">
+            <div class="module-title">项目统计</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              <div>总章节：<span id="stat-chapters">0</span></div>
+              <div>总字数：<span id="stat-words">0</span></div>
+              <div>完成度：<span id="stat-progress">0%</span></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 中间：大纲预览 -->
+        <div style="padding:16px;overflow-y:auto;background:var(--bg-primary)">
+          <h3 style="margin-bottom:16px">大纲预览</h3>
+          <div id="outline-preview" style="white-space:pre-wrap;font-size:13px;line-height:1.8;color:var(--text-secondary)">
+            请在左侧选择一个章节开始写作
+          </div>
+          <div style="margin-top:16px">
+            <button class="btn btn-secondary" onclick="app.regenerateOutline()">重新生成大纲</button>
+          </div>
+        </div>
+        
+        <!-- 右侧：知识库 -->
+        <div class="writing-sidebar">
+          <div class="module-section">
+            <div class="module-title">关系图谱</div>
+            <div id="relation-graph"></div>
+          </div>
+          <div class="module-section" style="flex:1">
+            <div class="module-title">知识库</div>
+            <div id="knowledge-base"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 步骤4：写作 -->
+    <div id="step-writing" class="step-content">
+      <div class="writing-layout">
+        <!-- 左侧：章节列表 -->
+        <div class="writing-sidebar">
+          <div class="module-section">
+            <div class="module-title">章节</div>
+            <div id="chapter-list-writing"></div>
+          </div>
+          <div class="module-section">
+            <div class="module-title">项目统计</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              <div>总章节：<span id="stat-chapters-w">0</span></div>
+              <div>总字数：<span id="stat-words-w">0</span></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 中间：写作区 -->
+        <div class="writing-main">
+          <!-- 工具栏 -->
+          <div style="padding:8px 12px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">
+            <span id="current-chapter-name" style="font-size:12px">未选择章节</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-secondary" onclick="app.backToChapters()" style="padding:4px 8px;font-size:11px">返回章节</button>
+          </div>
+          
+          <!-- 编辑区 -->
+          <div class="writing-editor">
+            <textarea id="editor" class="textarea" placeholder="开始你的创作..." oninput="app.onEditorInput()"></textarea>
+          </div>
+          
+          <!-- 实时张力 -->
+          <div style="padding:6px 12px;background:var(--bg-secondary);border-top:1px solid var(--border);display:flex;gap:12px;font-size:11px">
+            <span>冲突:<span id="rt-conflict" style="color:#e94560">--</span>%</span>
+            <span>悬念:<span id="rt-suspense" style="color:#fbbf24">--</span>%</span>
+            <span>情感:<span id="rt-emotion" style="color:#4ade80">--</span>%</span>
+            <span>节奏:<span id="rt-rhythm" style="color:#60a5fa">--</span>%</span>
+            <span style="margin-left:auto;font-weight:bold;color:var(--accent)">综合:<span id="rt-overall">--</span></span>
+          </div>
+          
+          <!-- 操作按钮 -->
+          <div class="writing-footer">
+            <div id="writing-instructions" style="display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="app.startWriting('continue')">▶ 续写</button>
+              <button class="btn btn-secondary" onclick="app.startWriting('polish')">◉ 润色</button>
+              <button class="btn btn-secondary" onclick="app.startWriting('rewrite')">◉ 改写</button>
+              <button class="btn btn-secondary" onclick="app.startWriting('summarize')">◉ 概括</button>
+            </div>
+            <div id="writing-controls" style="display:none;gap:8px">
+              <button class="btn" disabled style="background:#fbbf24;color:#000">⏳ 写作中...</button>
+              <button class="btn btn-primary" onclick="app.stopWriting()">■ 停止</button>
+            </div>
+            <div style="flex:1"></div>
+            <button class="btn btn-secondary" onclick="app.saveChapter()">📦 保存</button>
+          </div>
+        </div>
+        
+        <!-- 右侧：知识库 -->
+        <div class="writing-sidebar">
+          <div class="module-section">
+            <div class="module-title">关系图谱</div>
+            <div id="relation-graph-writing"></div>
+          </div>
+          <div class="module-section" style="flex:1">
+            <div class="module-title">知识库</div>
+            <div id="knowledge-base-writing"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="status-bar">
+      <span>字数: <span id="word-count">0</span></span>
+      <span id="save-status"></span>
+    </div>
+  </div>
+
+  <script src="components/ChapterList.js"></script>
+  <script src="components/RelationGraph.js"></script>
+  <script src="components/KnowledgeBase.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
