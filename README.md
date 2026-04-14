@@ -2,7 +2,7 @@
 
 > 集成 AI 生成、实时张力分析、多维度回退的小说写作工具
 
-**服务地址**: http://192.168.5.171:3000
+**服务地址**: http://localhost:3000 (开发环境)
 
 ---
 
@@ -11,10 +11,10 @@
 | 层级 | 技术 |
 |------|------|
 | 前端 | 原生 HTML/CSS/JS（无框架，模块化） |
-| 后端 | FastAPI + Pydantic |
-| AI | MiniMax API（`MiniMax-M2.7` 模型） |
+| 后端 | FastAPI + Pydantic + SQLAlchemy |
+| AI | MiniMax API（`MiniMax-M2.7` 模型）+ Anthropic SDK |
 | 数据库 | SQLite（`ai_novel.db`） |
-| Web 服务器 | nginx（端口 3000，反向代理到 8000） |
+| 服务器 | uvicorn (8000) + http.server (3000) |
 
 ---
 
@@ -22,225 +22,213 @@
 
 ```
 ai-novel-app/
-├── frontend/                    # 前端资源（部署在 /var/www/ai-novel/）
-│   ├── index.html               # 入口页面（HTML 结构）
-│   ├── app.js                   # 主应用逻辑（UI 状态、API 调用、事件绑定）
-│   ├── components/              # 前端组件
-│   │   ├── ChapterList.js       # 章节列表组件
-│   │   ├── TensionMeter.js       # 张力仪表盘组件
-│   │   ├── RelationGraph.js      # 人物关系图谱组件
-│   │   └── KnowledgeBase.js      # 知识库面板组件
-│   └── styles/                  # 样式表
-│       ├── base.css             # 基础样式（重置、变量）
-│       ├── layout.css           # 布局样式（三栏、响应式）
-│       └── components.css       # 组件样式
+├── frontend/                    # 前端资源
+│   ├── index.html               # 入口页面
+│   ├── app.js                   # 主应用逻辑（模块编排）
+│   ├── modules/                 # 功能模块
+│   │   ├── api.js              # API 客户端（含 SSE 流式处理）
+│   │   ├── state.js            # 全局状态管理
+│   │   ├── project.js          # 项目/章节 CRUD
+│   │   ├── outline.js          # 大纲生成（5阶段增量）
+│   │   └── writing.js          # 写作操作（续写/润色/改写/概括）
+│   └── components/              # UI 组件
+│       ├── ChapterList.js      # 章节列表
+│       ├── TensionMeter.js     # 张力仪表盘
+│       ├── RelationGraph.js    # 人物关系图谱
+│       └── KnowledgeBase.js    # 知识库面板
 │
 ├── backend/                     # 后端（uvicorn 端口 8000）
-│   ├── main.py                  # FastAPI 入口、CORS 配置、路由注册
+│   ├── main.py                  # FastAPI 入口、CORS 配置
 │   ├── api/                     # API 路由层
-│   │   ├── chapters.py          # 章节 CRUD 路由
-│   │   ├── characters.py        # 角色 CRUD 路由
-│   │   ├── writing.py          # AI 生成（大纲/续写）路由
-│   │   ├── database.py         # 项目/数据库路由
+│   │   ├── database.py         # 项目/章节/角色/伏笔 CRUD
+│   │   ├── writing.py          # AI 流式写作路由
+│   │   ├── chapters.py         # 章节操作路由
+│   │   ├── characters.py       # 角色路由
 │   │   └── rollback.py         # 多维度回退路由
 │   ├── services/                # 业务逻辑层
-│   │   ├── ai_client.py         # MiniMax API 客户端（httpx）
-│   │   ├── writing_engine.py   # 写作引擎（任务队列、Prompt 构造）
-│   │   ├── tension_analyzer.py  # 实时张力分析（冲突/悬念/情感/节奏）
-│   │   ├── version_control.py  # 版本控制（乐观锁、变更追踪）
+│   │   ├── ai_client.py        # MiniMax Anthropic SDK 客户端
+│   │   ├── writing_engine.py   # 写作引擎（Prompt 构造）
+│   │   ├── tension_analyzer.py  # 实时张力分析
 │   │   └── rollback_engine.py  # 多维度回退引擎
-│   └── models/
-│       └── schemas.py          # Pydantic 数据模型
+│   ├── models/
+│   │   └── schemas.py          # Pydantic 数据模型
+│   └── config.py               # 配置（API 密钥、超时等）
 │
 ├── database/
-│   ├── schema.sql              # SQLite 表结构
-│   └── models.py              # SQLAlchemy 模型
+│   ├── models.py               # SQLAlchemy 模型
+│   └── schema.sql              # SQLite 表结构参考
 │
-├── tests/                      # 单元测试
-│   ├── run_tests.py            # 测试运行器
-│   ├── backend/
-│   │   ├── api/
-│   │   │   ├── test_chapters.py
-│   │   │   ├── test_characters.py
-│   │   │   └── test_writing.py
-│   │   └── services/
-│   │       ├── test_ai_client.py
-│   │       ├── test_tension_analyzer.py
-│   │       └── test_version_control.py
-│   └── frontend/
-│       └── test_TensionMeter.js
-│
-├── docs/
-│   └── MVP_SPEC.md             # 功能规格说明
-│
-├── .env                        # 环境变量（API 密钥等）
-├── start.sh                    # 服务启动脚本（start/stop/restart/status）
-└── requirements.txt            # Python 依赖
+└── requirements.txt             # Python 依赖
 ```
 
 ---
 
-## 数据库表结构
+## 快速启动
 
-### `projects` — 项目表
+```bash
+# 安装依赖
+.venv/Scripts/pip install -r requirements.txt
+
+# 启动后端（开发模式）
+.venv/Scripts/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 启动前端（另一个终端）
+cd frontend && .venv/Scripts/python -m http.server 3000
+
+# 访问 http://localhost:3000
+```
+
+---
+
+## 数据库模型
+
+### projects — 项目表
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
 | name | TEXT | 项目名称 |
-| description | TEXT | 描述 |
 | novel_type | TEXT | 小说类型（都市言情/玄幻修仙/...） |
-| core_elements | TEXT | 核心元素（JSON 数组，最多3个） |
+| core_elements | TEXT | 核心元素（JSON 数组） |
+| outline | TEXT | AI 生成的大纲 |
 | target_word_count | INTEGER | 目标字数 |
-| outline | TEXT | AI 生成的大纲（JSON） |
-| created_at | TIMESTAMP | 创建时间 |
-| updated_at | TIMESTAMP | 更新时间 |
+| created_at / updated_at | TIMESTAMP | 时间戳 |
 
-### `chapters` — 章节表
+### chapters — 章节表
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
 | project_id | TEXT | 所属项目 |
+| number | INTEGER | 章节序号 |
 | title | TEXT | 章节标题 |
 | content | TEXT | 正文内容 |
-| word_count | INTEGER | 字数 |
-| order_index | INTEGER | 章节顺序 |
-| version | INTEGER | 版本号（乐观锁） |
-| created_at | TIMESTAMP | 创建时间 |
-| updated_at | TIMESTAMP | 更新时间 |
+| status | TEXT | 状态（draft/writing/completed） |
+| word_count | INTEGER | 字数统计 |
+| tension_score | FLOAT | 张力评分（0-1） |
+| timeline_order | INTEGER | 时间线顺序 |
+| synopsis | TEXT | 章节简介 |
+| key_events | TEXT | 关键事件（JSON） |
+| char_statuses | TEXT | 角色状态快照（JSON） |
 
-### `characters` — 角色表
+### chapter_summaries — 章节摘要表
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | TEXT (UUID) | 主键 |
+| chapter_id | TEXT | 所属章节（唯一） |
+| content_summary | TEXT | 内容摘要 |
+| plot_progression | TEXT | 情节推进 |
+| character_arcs | TEXT | 角色弧线变化 |
+| foreshadows_triggered | TEXT | 触发的伏笔 |
+| word_count | INTEGER | 字数 |
+
+### chapter_dependencies — 章节依赖表
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | TEXT (UUID) | 主键 |
+| project_id | TEXT | 所属项目 |
+| chapter_id | TEXT | 当前章节 |
+| depends_on_id | TEXT | 依赖的章节 |
+| dependency_type | TEXT | 依赖类型（sequential/reference/contrast） |
+
+### characters — 角色表
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
 | project_id | TEXT | 所属项目 |
 | name | TEXT | 角色名 |
-| role | TEXT | 角色类型（ protagonist/antagonist/supporting...） |
-| description | TEXT | 角色描述 |
-| traits | TEXT | 性格特征（JSON） |
-| appearance | TEXT | 外貌 |
-| backstory | TEXT | 背景故事 |
-| relationships | TEXT | 关系（JSON） |
-| created_at | TIMESTAMP | 创建时间 |
-| updated_at | TIMESTAMP | 更新时间 |
+| alias | TEXT | 别名 |
+| personality | TEXT | 性格描述 |
+| speech_style | TEXT | 说话风格 |
+| forbidden_topics | TEXT | 禁忌话题（JSON） |
 
-### `versions` — 版本表
+### character_relations — 角色关系表
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
-| chapter_id | TEXT | 所属章节 |
-| content | TEXT | 版本内容 |
-| version_num | INTEGER | 版本号 |
-| change_summary | TEXT | 变更摘要 |
-| created_at | TIMESTAMP | 创建时间 |
+| character_a_id / character_b_id | TEXT | 关系双方 |
+| relation_type | TEXT | 关系类型（朋友/敌人/爱人/师徒...） |
 
-### `foreshadows` — 伏笔表
+### foreshadows — 伏笔表
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT (UUID) | 主键 |
 | project_id | TEXT | 所属项目 |
-| content | TEXT | 伏笔内容 |
-| status | TEXT | 状态（pending/fulfilled） |
-| created_at | TIMESTAMP | 创建时间 |
-
-### `relations` — 角色关系表
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | TEXT (UUID) | 主键 |
-| project_id | TEXT | 所属项目 |
-| character_id | TEXT | 角色 |
-| related_id | TEXT | 关联角色 |
-| relation_type | TEXT | 关系类型（family/rival/lover...） |
+| chapter_id | TEXT | 埋下的章节 |
+| keyword | TEXT | 伏笔关键词 |
+| description | TEXT | 描述 |
+| status | TEXT | 状态（planted/triggered/resolved） |
 
 ---
 
 ## API 路由
 
-### `/api/db/` — 项目管理
+### 项目管理 `/api/db/projects`
 - `GET /projects` — 获取所有项目
 - `POST /projects` — 创建项目
 - `GET /projects/{id}` — 获取项目详情
 - `PUT /projects/{id}` — 更新项目
 - `DELETE /projects/{id}` — 删除项目
-- `PUT /projects/{id}/outline` — 更新大纲
 
-### `/api/chapters/` — 章节管理
-- `GET /projects/{project_id}/chapters` — 获取章节列表
-- `POST /projects/{project_id}/chapters` — 创建章节
+### 章节管理 `/api/db/chapters`
+- `POST /chapters` — 创建章节
+- `GET /chapters/{id}` — 获取章节
 - `PUT /chapters/{id}` — 更新章节
 - `DELETE /chapters/{id}` — 删除章节
+- `POST /chapters/{id}/versions` — 保存版本快照
+- `GET /chapters/{id}/versions` — 获取版本历史
+- `POST /chapters/{id}/rollback/{version}` — 回滚到指定版本
+- `POST /chapters/{id}/summary` — 创建/更新章节摘要
+- `GET /chapters/{id}/summary` — 获取章节摘要
 
-### `/api/characters/` — 角色管理
-- `GET /projects/{project_id}/characters` — 获取角色列表
-- `POST /projects/{project_id}/characters` — 创建角色
+### 角色管理 `/api/db/characters`
+- `POST /characters` — 创建角色
+- `GET /characters/project/{pid}` — 获取项目角色
 - `PUT /characters/{id}` — 更新角色
 - `DELETE /characters/{id}` — 删除角色
 
-### `/api/writing/` — AI 写作
-- `POST /` — 生成内容（大纲/续写）
-  - Body: `{"chapter_id": "...", "instruction": "...", "context": "..."}`
-  - 返回: `{"content": "...", "tension_score": 0.x, "tokens_used": n}`
+### 伏笔管理 `/api/db/foreshadows`
+- `POST /foreshadows` — 创建伏笔
+- `GET /foreshadows/project/{pid}` — 获取项目伏笔
+- `PUT /foreshadows/{id}` — 更新伏笔状态
 
-### `/api/rollback/` — 多维度回退
-- `POST /` — 执行回退
-  - Body: `{"project_id": "...", "chapter_id": "...", "dimension": "content|character|logic|all"}`
+### 写作 `/api/writing`
+- `POST /` — 流式写作（续写/润色/改写/概括）
+  - Body: `{"chapter_id": "...", "instruction": "...", "context": "..."}`
+  - 返回: SSE 流式数据 `data: {"type": "chunk", "content": "..."}`
+
+### 进度追踪 `/api/db/project/{id}`
+- `GET /progress` — 获取项目进度（章节完成数/字数/伏笔状态）
+- `GET /writable-chapters` — 获取可写的章节
 
 ---
 
-## 核心功能说明
+## 核心功能
 
 ### 1. 引导式工作流
 ```
-项目列表 → 新建项目 → 选择小说类型 → 选择核心元素(≤3) → AI 生成大纲 → 章节管理 → 写作
+项目列表 → 新建项目 → 选择小说类型 → 选择核心元素(≤3)
+       → 5阶段 AI 生成大纲 → 章节管理 → 写作
 ```
-- 6 种预设类型：都市言情、玄幻修仙、悬疑推理、科幻未来、武侠江湖、校园青春
-- 10 种预设元素：逆袭崛起、命中注定、商战博弈等
+
+**5阶段大纲生成**：
+1. 生成故事主线
+2. 生成章节标题（8-12章）
+3. 生成角色列表（JSON）
+4. 生成角色关系（JSON）
+5. 生成伏笔（JSON）
 
 ### 2. 实时张力分析
-写作时实时分析四个维度：
-- **冲突值**：矛盾强度（0-1）
-- **悬念值**：悬念设置（0-1）
-- **情感值**：情感张力（0-1）
-- **节奏值**：节奏起伏（0-1）
+写作时分析四个维度（0-1）：
+- **冲突值**：矛盾强度
+- **悬念值**：悬念设置
+- **情感值**：情感张力
+- **节奏值**：节奏起伏
 - **综合张力**：加权平均
 
-### 3. 多维度回退引擎
-支持按维度回退：
-- `content` — 仅内容回退
-- `character` — 角色一致性回退
-- `logic` — 逻辑连贯性回退
-- `all` — 全维度回退
-
----
-
-## 服务管理
-
-### 启动服务
-```bash
-# 方法1：使用启动脚本
-/root/.openclaw/agents/team-leader/workspace/ai-novel-app/start.sh start
-
-# 方法2：手动启动
-cd /root/.openclaw/agents/team-leader/workspace/ai-novel-app
-nohup .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &
-nginx
-```
-
-### 重启服务
-```bash
-/root/.openclaw/agents/team-leader/workspace/ai-novel-app/start.sh restart
-```
-
-### 查看状态
-```bash
-/root/.openclaw/agents/team-leader/workspace/ai-novel-app/start.sh status
-ps aux | grep uvicorn | grep -v grep
-```
-
-### 相关路径
-- 前端部署：`/var/www/ai-novel/`（nginx 直接托管）
-- 后端代码：`/root/.openclaw/agents/team-leader/workspace/ai-novel-app/backend/`
-- 数据库：`/root/.openclaw/agents/team-leader/workspace/ai-novel-app/ai_novel.db`
-- nginx 配置：`/etc/nginx/sites-available/ai-novel`
+### 3. 流式写作
+使用 Anthropic SDK 实现 MiniMax 流式输出：
+- 续写 / 润色 / 改写 / 概括
+- 实时显示生成内容
+- 自动上下文构建（项目背景 + 章节信息）
 
 ---
 
@@ -248,49 +236,28 @@ ps aux | grep uvicorn | grep -v grep
 
 ```bash
 MINIMAX_API_KEY=your_api_key_here
-MINIMAX_GROUP_ID=your_group_id_here
-```
-
----
-
-## 使用 Claude Code 开发
-
-Claude Code 建议在 `backend/` 目录下工作：
-```bash
-cd /root/.openclaw/agents/team-leader/workspace/ai-novel-app
-```
-
-常用命令：
-```bash
-# 运行测试
-.venv/bin/python tests/run_tests.py
-
-# 启动后端（开发模式，自动 reload）
-cd /root/.openclaw/agents/team-leader/workspace/ai-novel-app
-.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 查看 uvicorn 日志
-tail -f /tmp/uvicorn.log
-
-# 数据库查看
-sqlite3 ai_novel.db ".schema"
+TIMEOUT=60
+MAX_TOKENS=16384
+TEMPERATURE=0.7
 ```
 
 ---
 
 ## 已知问题 / 待改进
 
-1. **服务稳定性**：uvicorn 依赖后台进程，偶尔需要 restart.sh 重启（已配置 PID 文件）
-2. **app.js 源文件为空**：源文件 `/root/.openclaw/agents/team-leader/workspace/ai-novel-app/frontend/app.js` 为 0 字节，部署文件在 `/var/www/ai-novel/app.js`
-3. **前端框架**：目前是原生 JS，建议迁移到 React/Vue 提升可维护性
-4. **数据库**：当前是 SQLite，多用户场景建议迁移到 PostgreSQL
-5. **AI 模型**：当前仅支持 MiniMax，可扩展支持 Claude/GPT 等
-6. **用户认证**：暂无用户系统，数据共享同一数据库
+1. **第二章写作时标题问题**：上下文构建时章节信息获取有误
+2. **大纲解析边界情况**：某些大纲格式可能导致解析失败
+3. **服务稳定性**：生产环境建议使用 nginx + systemd
 
 ---
 
-## 部署记录（2026-04-12）
+## 更新日志
 
-- nginx 监听 3000 端口，反向代理 `/api/` 到 8000
-- 前端文件复制到 `/var/www/ai-novel/`（nginx 无法访问 `/root/`）
-- 已创建测试项目："测试小说2"、"我的小说"、"我的都市小说"
+### 2026-04-14
+- 简化为仅使用 MiniMax Anthropic SDK
+- 5阶段增量大纲生成
+- 新增章节摘要/依赖/进度追踪功能
+- 修复 CORS / foreshadow API 等问题
+
+### 2026-04-12
+- 初始版本
