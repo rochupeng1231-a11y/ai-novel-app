@@ -70,11 +70,16 @@ async function apiCreateCharacter(projectId, data) {
 
 // ============ 伏笔 ============
 async function apiCreateForeshadow(projectId, keyword, description, status = 'planted') {
+  const body = {project_id: projectId, keyword, description, status};
   const res = await fetch(`${API_BASE}/db/foreshadows`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({project_id: projectId, keyword, description, status})
+    body: JSON.stringify(body)
   });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`创建伏笔失败(${res.status}): ${err}`);
+  }
   return res.json();
 }
 

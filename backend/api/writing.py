@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from backend.models.schemas import WritingRequest, WritingResponse
 from backend.services.writing_engine import WritingEngine
-from backend.services.ai_client import ai_aggregator
+from backend.services.ai_client import mini_max_client, stream_generate
 from backend.config import MAX_TOKENS
 from database.models import get_db, Project, Chapter, Character
 
@@ -103,7 +103,7 @@ async def write_stream(writing_request: WritingRequest, db: Session = Depends(ge
         try:
             full_content = []
             chunk_count = 0
-            async for chunk, model_name in ai_aggregator.stream_generate(task_type, prompt, **extra_params):
+            async for chunk in stream_generate(prompt, **extra_params):
                 full_content.append(chunk)
                 chunk_count += 1
                 # 实时推送每个字符块

@@ -14,12 +14,12 @@ CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", "")
 
 # ============ AI 参数配置 ============
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "16384"))
-TIMEOUT = float(os.getenv("TIMEOUT", "600"))
+TIMEOUT = float(os.getenv("TIMEOUT", "60"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
 
 # ============ AI Provider 端点配置 ============
 MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
-MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimaxi.com/anthropic/v1"
+MINIMAX_ANTHROPIC_BASE_URL = "https://api.minimaxi.com/anthropic"
 MINIMAX_MODEL = "MiniMax-M2.7"
 
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"

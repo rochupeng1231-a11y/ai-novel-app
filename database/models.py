@@ -24,9 +24,10 @@ class Project(Base):
     core_elements = Column(Text)  # 核心元素（JSON数组，最多3个）
     outline = Column(Text)  # AI 生成的大纲
     target_word_count = Column(Integer, default=300000)
+    writing_phase = Column(String, default="outline")  # outline, planning, writing, revision
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     chapters = relationship("Chapter", back_populates="project", cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="project", cascade="all, delete-orphan")
     foreshadows = relationship("Foreshadow", back_populates="project", cascade="all, delete-orphan")
@@ -34,7 +35,7 @@ class Project(Base):
 
 class Chapter(Base):
     __tablename__ = "chapters"
-    
+
     id = Column(String, primary_key=True)
     project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"))
     number = Column(Integer, nullable=False)
@@ -43,12 +44,52 @@ class Chapter(Base):
     status = Column(String, default="draft")  # draft, writing, completed
     word_count = Column(Integer, default=0)
     tension_score = Column(Float, default=0.5)
+    timeline_order = Column(Integer, default=0)  # 时间线顺序
+    synopsis = Column(Text, default="")  # 章节简介
+    key_events = Column(Text, default="")  # 关键事件 JSON 数组
+    char_statuses = Column(Text, default="")  # 角色状态快照 JSON
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     project = relationship("Project", back_populates="chapters")
     versions = relationship("ChapterVersion", back_populates="chapter", cascade="all, delete-orphan")
     foreshadows = relationship("Foreshadow", back_populates="chapter")
+    summary = relationship("ChapterSummary", back_populates="chapter", uselist=False, cascade="all, delete-orphan")
+    dependencies_from = relationship("ChapterDependency", foreign_keys="ChapterDependency.chapter_id", back_populates="chapter")
+    dependencies_to = relationship("ChapterDependency", foreign_keys="ChapterDependency.depends_on_id", back_populates="depends_on_chapter")
+
+
+class ChapterSummary(Base):
+    """章节摘要 - 用于后续章节写作时的上下文参考"""
+    __tablename__ = "chapter_summaries"
+
+    id = Column(String, primary_key=True)
+    chapter_id = Column(String, ForeignKey("chapters.id", ondelete="CASCADE"), unique=True)
+    content_summary = Column(Text, default="")  # 内容摘要 ~300字
+    plot_progression = Column(Text, default="")  # 情节推进
+    character_arcs = Column(Text, default="")  # 角色弧线变化
+    foreshadows_triggered = Column(Text, default="")  # 触发的伏笔
+    word_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    chapter = relationship("Chapter", back_populates="summary")
+
+
+class ChapterDependency(Base):
+    """章节依赖关系 - 支持顺序依赖和引用依赖"""
+    __tablename__ = "chapter_dependencies"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"))
+    chapter_id = Column(String, ForeignKey("chapters.id", ondelete="CASCADE"))
+    depends_on_id = Column(String, ForeignKey("chapters.id", ondelete="CASCADE"))
+    dependency_type = Column(String, default="sequential")  # sequential, reference, contrast
+    description = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    chapter = relationship("Chapter", foreign_keys=[chapter_id], back_populates="dependencies_from")
+    depends_on_chapter = relationship("Chapter", foreign_keys=[depends_on_id], back_populates="dependencies_to")
 
 
 class ChapterVersion(Base):

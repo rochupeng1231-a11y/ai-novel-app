@@ -9,7 +9,7 @@ from datetime import datetime
 import uuid
 import json
 
-from database.models import init_db, get_db, Project, Chapter, Character, CharacterRelation, Foreshadow, ChapterVersion
+from database.models import init_db, get_db, Project, Chapter, Character, CharacterRelation, Foreshadow, ChapterVersion, ChapterSummary, ChapterDependency
 
 router = APIRouter(prefix="/api/db", tags=["数据库"])
 
@@ -435,7 +435,7 @@ def list_relations(project_id: str, db: Session = Depends(get_db)):
 
 class ForeshadowCreate(BaseModel):
     project_id: str
-    chapter_id: Optional[str]
+    chapter_id: Optional[str] = None
     keyword: str
     description: str = ""
     status: str = "planted"
@@ -447,7 +447,7 @@ class ForeshadowUpdate(BaseModel):
     status: Optional[str] = None
 
 
-@router.post("/foreshadows", response_model=List[dict])
+@router.post("/foreshadows")
 def create_foreshadow(fs: ForeshadowCreate, db: Session = Depends(get_db)):
     db_fs = Foreshadow(
         id=str(uuid.uuid4()),
@@ -460,7 +460,16 @@ def create_foreshadow(fs: ForeshadowCreate, db: Session = Depends(get_db)):
     db.add(db_fs)
     db.commit()
     db.refresh(db_fs)
-    return db_fs
+    return {
+        "id": db_fs.id,
+        "project_id": db_fs.project_id,
+        "chapter_id": db_fs.chapter_id,
+        "keyword": db_fs.keyword,
+        "description": db_fs.description,
+        "status": db_fs.status,
+        "created_at": db_fs.created_at.isoformat() if db_fs.created_at else None,
+        "resolved_at": db_fs.resolved_at.isoformat() if db_fs.resolved_at else None
+    }
 
 
 @router.get("/foreshadows/project/{project_id}")
@@ -497,3 +506,158 @@ def update_foreshadow(foreshadow_id: str, update: ForeshadowUpdate, db: Session 
     
     db.commit()
     return {"message": "伏笔已更新"}
+
+
+# ============ 进度追踪 ============
+
+class ChapterSummaryRequest(BaseModel):
+    chapter_id: str
+    content_summary: str = ""
+    plot_progression: str = ""
+    character_arcs: str = ""
+    foreshadows_triggered: str = ""
+    word_count: int = 0
+
+
+class ChapterSummaryResponse(BaseModel):
+    id: str
+    chapter_id: str
+    content_summary: str
+    plot_progression: str
+    character_arcs: str
+    foreshadows_triggered: str
+    word_count: int
+    created_at: datetime
+
+
+@router.post("/chapters/{chapter_id}/summary", response_model=ChapterSummaryResponse)
+def create_or_update_chapter_summary(
+    chapter_id: str,
+    summary: ChapterSummaryRequest,
+    db: Session = Depends(get_db)
+):
+    """创建或更新章节摘要"""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+
+    existing = db.query(ChapterSummary).filter(ChapterSummary.chapter_id == chapter_id).first()
+
+    if existing:
+        existing.content_summary = summary.content_summary
+        existing.plot_progression = summary.plot_progression
+        existing.character_arcs = summary.character_arcs
+        existing.foreshadows_triggered = summary.foreshadows_triggered
+        existing.word_count = summary.word_count
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return existing
+    else:
+        import uuid
+        new_summary = ChapterSummary(
+            id=str(uuid.uuid4()),
+            chapter_id=chapter_id,
+            content_summary=summary.content_summary,
+            plot_progression=summary.plot_progression,
+            character_arcs=summary.character_arcs,
+            foreshadows_triggered=summary.foreshadows_triggered,
+            word_count=summary.word_count
+        )
+        db.add(new_summary)
+        db.commit()
+        db.refresh(new_summary)
+        return new_summary
+
+
+@router.get("/chapters/{chapter_id}/summary")
+def get_chapter_summary(chapter_id: str, db: Session = Depends(get_db)):
+    """获取章节摘要"""
+    summary = db.query(ChapterSummary).filter(ChapterSummary.chapter_id == chapter_id).first()
+    if not summary:
+        return None
+    return {
+        "id": summary.id,
+        "chapter_id": summary.chapter_id,
+        "content_summary": summary.content_summary,
+        "plot_progression": summary.plot_progression,
+        "character_arcs": summary.character_arcs,
+        "foreshadows_triggered": summary.foreshadows_triggered,
+        "word_count": summary.word_count,
+        "created_at": summary.created_at.isoformat() if summary.created_at else None
+    }
+
+
+@router.get("/project/{project_id}/progress")
+def get_project_progress(project_id: str, db: Session = Depends(get_db)):
+    """获取项目进度"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    chapters = db.query(Chapter).filter(Chapter.project_id == project_id).all()
+    foreshadows = db.query(Foreshadow).filter(Foreshadow.project_id == project_id).all()
+
+    total_words = sum(c.word_count or 0 for c in chapters)
+    completed = sum(1 for c in chapters if c.status == 'completed')
+    in_progress = sum(1 for c in chapters if c.status == 'writing')
+    pending = sum(1 for c in chapters if c.status == 'draft')
+
+    return {
+        "chapters": {
+            "total": len(chapters),
+            "completed": completed,
+            "in_progress": in_progress,
+            "pending": pending,
+            "percent": round(completed / len(chapters) * 100) if chapters else 0
+        },
+        "word_count": {
+            "current": total_words,
+            "target": project.target_word_count or 300000,
+            "percent": round(total_words / (project.target_word_count or 300000) * 100)
+        },
+        "foreshadows": {
+            "planted": sum(1 for f in foreshadows if f.status == 'planted'),
+            "triggered": sum(1 for f in foreshadows if f.status == 'triggered'),
+            "resolved": sum(1 for f in foreshadows if f.status == 'resolved')
+        }
+    }
+
+
+@router.get("/project/{project_id}/writable-chapters")
+def get_writable_chapters(project_id: str, db: Session = Depends(get_db)):
+    """获取当前可写的章节（依赖都已完成的章节）"""
+    chapters = db.query(Chapter).filter(Chapter.project_id == project_id).all()
+    dependencies = db.query(ChapterDependency).filter(ChapterDependency.project_id == project_id).all()
+
+    # 构建依赖图
+    chapter_deps = {}
+    for ch in chapters:
+        chapter_deps[ch.id] = {
+            "chapter": ch,
+            "deps": []
+        }
+
+    for dep in dependencies:
+        if dep.chapter_id in chapter_deps and dep.depends_on_id in chapter_deps:
+            chapter_deps[dep.chapter_id]["deps"].append(dep.depends_on_id)
+
+    # 找出可写的章节
+    writable = []
+    for ch_id, info in chapter_deps.items():
+        if info["chapter"].status != 'draft':
+            continue
+        all_deps_done = all(
+            chapter_deps.get(dep_id, {}).get("chapter", None) is not None and
+            chapter_deps[dep_id]["chapter"].status == 'completed'
+            for dep_id in info["deps"]
+        )
+        if all_deps_done or len(info["deps"]) == 0:
+            writable.append({
+                "id": info["chapter"].id,
+                "number": info["chapter"].number,
+                "title": info["chapter"].title,
+                "status": info["chapter"].status
+            })
+
+    return sorted(writable, key=lambda x: x["number"])
