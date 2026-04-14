@@ -9,6 +9,15 @@ async function startWriting(instruction) {
   stateManager.setIsWriting(true);
   stateManager.state.currentInstruction = instruction;
 
+  // ConStory一致性检查（仅续写且有项目时）
+  if (instruction === '续写' && stateManager.state.currentProject?.id) {
+    const checkResult = await runPreWriteCheck(stateManager.state.currentProject.id);
+    if (checkResult && !showConStoryWarningDialog(checkResult)) {
+      stateManager.setIsWriting(false);
+      return; // 用户取消
+    }
+  }
+
   const editor = document.getElementById('editor');
   updateWritingButtons();
 
@@ -30,9 +39,14 @@ async function startWriting(instruction) {
             updateWordCount();
           }
         },
-        onDone() {
+        onDone(evt) {
           const statusEl = document.getElementById('writing-status');
           if (statusEl) statusEl.textContent = '✅ 生成完成';
+          // 续写完成后自动分析（Continuity后处理）
+          if (instruction === '续写' && stateManager.state.currentChapter?.id) {
+            const content = editor?.value || '';
+            schedulePostWriteAnalysis(stateManager.state.currentChapter.id, content);
+          }
         },
         onError(msg) {
           console.error('写作错误:', msg);
@@ -148,8 +162,93 @@ function updateWordCount() {
   if (wc) wc.textContent = count;
 }
 
+// ============ 续写后自动分析 ============
+let analyzeTimer = null;
+
+async function runPreWriteCheck(projectId) {
+  try {
+    const result = await api.preWriteCheck(projectId);
+    return result;
+  } catch (e) {
+    console.error('[ConStory] 检查失败:', e);
+    return null;
+  }
+}
+
+function showConStoryWarningDialog(checkResult) {
+  const warnings = checkResult?.warnings || {};
+  const high = warnings.high || [];
+  const medium = warnings.medium || [];
+
+  if (high.length === 0 && medium.length === 0) {
+    return true; // 无严重警告，直接继续
+  }
+
+  const messages = [];
+  high.forEach(w => messages.push(`⚠️ 高危: ${w.message}`));
+  medium.forEach(w => messages.push(`⚡ 中危: ${w.message}`));
+
+  return confirm(`[ConStory 一致性警告]\n\n${messages.join('\n')}\n\n是否继续写作？（取消后可调整角色状态）`);
+}
+
+function schedulePostWriteAnalysis(chapterId, content) {
+  // 写作完成后延迟2秒，确保章节已保存
+  if (analyzeTimer) clearTimeout(analyzeTimer);
+  analyzeTimer = setTimeout(async () => {
+    try {
+      console.log('[Continuity] 开始分析章节:', chapterId);
+      const result = await api.analyzeChapter(chapterId, content);
+      console.log('[Continuity] 分析完成:', result);
+      // 可以在这里触发UI更新，比如显示连贯性摘要
+      if (window.app && window.app.refreshContinuity) {
+        window.app.refreshContinuity();
+      }
+    } catch (e) {
+      console.error('[Continuity] 分析失败:', e);
+    }
+  }, 2000);
+}
+
+// ============ BVSR/SWAG 必须事件 ============
+const swagAnchors = [];
+
+function addSwagAnchor(eventText) {
+  if (eventText && !swagAnchors.includes(eventText)) {
+    swagAnchors.push(eventText);
+    updateSwagAnchorsDisplay();
+  }
+}
+
+function removeSwagAnchor(eventText) {
+  const idx = swagAnchors.indexOf(eventText);
+  if (idx > -1) {
+    swagAnchors.splice(idx, 1);
+    updateSwagAnchorsDisplay();
+  }
+}
+
+function updateSwagAnchorsDisplay() {
+  const container = document.getElementById('swag-anchors-list');
+  if (!container) return;
+  if (swagAnchors.length === 0) {
+    container.innerHTML = '<span style="color:#888;font-size:12px">暂无必须事件</span>';
+  } else {
+    container.innerHTML = swagAnchors.map((e, i) =>
+      `<span class="swag-anchor-item" title="点击移除">${escapeHtml(e)} <button onclick="writingModule.removeSwagAnchor('${escapeHtml(e).replace(/'/g, "\\'")}')" style="background:none;border:none;color:#f44;cursor:pointer;padding:0 2px">×</button></span>`
+    ).join('');
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 window.writingModule = {
   startWriting, stopWriting, updateWritingButtons, saveChapter,
   onEditorInput, analyzeRealtimeTension, localTensionAnalyze,
-  updateRealtimeTensionDisplay, updateWordCount
+  updateRealtimeTensionDisplay, updateWordCount,
+  // Continuity
+  schedulePostWriteAnalysis,
+  // BVSR/SWAG
+  addSwagAnchor, removeSwagAnchor, getSwagAnchors: () => [...swagAnchors]
 };

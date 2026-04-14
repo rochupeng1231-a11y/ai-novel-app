@@ -87,6 +87,12 @@
       display: flex;
       flex-direction: column;
     }
+
+    /* 步骤5：批量审核 */
+    #step-batch-review.active {
+      display: flex;
+      flex-direction: column;
+    }
     
     /* 写作界面布局 */
     .writing-layout {
@@ -203,6 +209,10 @@
         <span class="num">4</span>
         <span>开始写作</span>
       </div>
+      <div class="step-indicator" id="step-ind-5">
+        <span class="num">5</span>
+        <span>批量审核</span>
+      </div>
     </div>
 
     <!-- 步骤1：新建项目 -->
@@ -273,6 +283,12 @@
               <div>总字数：<span id="stat-words">0</span></div>
               <div>完成度：<span id="stat-progress">0%</span></div>
             </div>
+          </div>
+          <div class="module-section">
+            <div class="module-title">批量写作</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">选择章节后批量写作</div>
+            <div id="batch-chapter-selector" style="max-height:120px;overflow-y:auto;font-size:11px"></div>
+            <button class="btn btn-primary" onclick="app.startBatchWriting()" style="width:100%;margin-top:6px">🚀 批量写作</button>
           </div>
         </div>
         
@@ -373,6 +389,114 @@
           <div class="module-section" style="flex:1">
             <div class="module-title">知识库</div>
             <div id="knowledge-base-writing"></div>
+          </div>
+          <div class="module-section">
+            <div class="module-title">必须事件 <span style="font-size:10px;color:var(--text-secondary)">(SWAG)</span></div>
+            <div id="swag-anchors-list" style="font-size:11px;color:var(--text-secondary);margin-bottom:6px">
+              <span style="color:#888">暂无必须事件</span>
+            </div>
+            <input id="swag-anchor-input" class="input" placeholder="输入必须发生的事件..." style="font-size:11px;padding:4px 6px;margin-bottom:4px">
+            <button class="btn btn-secondary" onclick="app.addSwagAnchor()" style="width:100%;font-size:11px;padding:4px">添加</button>
+            <div style="font-size:10px;color:var(--text-secondary);margin-top:4px">写作时会确保包含这些事件</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 步骤5：批量审核 -->
+    <div id="step-batch-review" class="step-content">
+      <div class="writing-layout">
+        <!-- 左侧：批量进度 -->
+        <div class="writing-sidebar">
+          <div class="module-section">
+            <div class="module-title">批量进度</div>
+            <div id="batch-progress" style="font-size:12px;color:var(--text-secondary)">
+              <div>进度: <span id="batch-current">0</span>/<span id="batch-total">0</span></div>
+              <div>状态: <span id="batch-status">等待开始</span></div>
+            </div>
+          </div>
+          <div class="module-section" style="flex:1">
+            <div class="module-title">待审核章节</div>
+            <div id="batch-queue" style="font-size:11px;max-height:300px;overflow-y:auto"></div>
+          </div>
+          <div class="module-section">
+            <button class="btn btn-secondary" onclick="app.backToChapters()" style="width:100%">返回章节管理</button>
+          </div>
+        </div>
+
+        <!-- 中间：审核编辑区 -->
+        <div class="writing-main">
+          <div style="padding:8px 12px;background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">
+            <span id="batch-chapter-name" style="font-size:12px">未选择</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-secondary" onclick="app.backToChapters()" style="padding:4px 8px;font-size:11px">返回</button>
+          </div>
+
+          <div class="writing-editor">
+            <textarea id="batch-editor" class="textarea" placeholder="生成的内容将显示在这里，您可以修改后审核..." style="height:100%"></textarea>
+          </div>
+
+          <div style="padding:6px 12px;background:var(--bg-secondary);border-top:1px solid var(--border);display:flex;gap:8px;align-items:center">
+            <span style="font-size:11px">审核操作:</span>
+            <button class="btn btn-primary" onclick="app.batchReview('approve')">✅ 通过</button>
+            <button class="btn btn-secondary" onclick="app.batchReview('revise')">✏️ 修改后通过</button>
+            <button class="btn btn-secondary" onclick="app.batchReview('skip')">⏭️ 跳过</button>
+            <button class="btn btn-secondary" onclick="app.batchReview('reject')">❌ 拒绝</button>
+          </div>
+        </div>
+
+        <!-- 右侧：信息面板 -->
+        <div class="writing-sidebar">
+          <div class="module-section">
+            <div class="module-title">审核维度</div>
+            <div id="batch-review-dimensions" style="font-size:11px;color:var(--text-secondary)">
+              <div style="margin-bottom:8px">
+                <div style="color:var(--text-primary);margin-bottom:4px">基础信息</div>
+                <div>章号: <span id="batch-chapter-num">-</span></div>
+                <div>字数: <span id="batch-chapter-words">0</span></div>
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="color:var(--text-primary);margin-bottom:4px">张力分析</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px">
+                  <span>冲突:</span><span id="dim-conflict" style="color:#e94560">-</span>
+                  <span>悬念:</span><span id="dim-suspense" style="color:#fbbf24">-</span>
+                  <span>情感:</span><span id="dim-emotion" style="color:#4ade80">-</span>
+                  <span>节奏:</span><span id="dim-rhythm" style="color:#60a5fa">-</span>
+                </div>
+                <div style="margin-top:4px">综合: <span id="batch-chapter-tension" style="color:var(--accent);font-weight:bold">-</span></div>
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="color:var(--text-primary);margin-bottom:4px">DOME 时间线</div>
+                <div id="batch-dome-info" style="color:#888">暂无事件</div>
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="color:var(--text-primary);margin-bottom:4px">SCORE 角色状态</div>
+                <div id="batch-score-info" style="color:#888">暂无状态</div>
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="color:var(--text-primary);margin-bottom:4px">CFPG 伏笔</div>
+                <div id="batch-foreshadow-info" style="color:#888">暂无伏笔</div>
+              </div>
+              <div style="margin-bottom:8px">
+                <div style="color:var(--text-primary);margin-bottom:4px">CoKe 套路</div>
+                <div id="batch-trope-info" style="color:#888">暂无数据</div>
+              </div>
+              <div>
+                <div style="color:var(--text-primary);margin-bottom:4px">ConStory 检查</div>
+                <div id="batch-consistency-info" style="color:#888">暂无警告</div>
+              </div>
+            </div>
+          </div>
+          <div class="module-section">
+            <div class="module-title">快速评分</div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-secondary" onclick="app.rateChapter(1)" style="padding:2px 8px;font-size:10px">1星</button>
+              <button class="btn btn-secondary" onclick="app.rateChapter(2)" style="padding:2px 8px;font-size:10px">2星</button>
+              <button class="btn btn-secondary" onclick="app.rateChapter(3)" style="padding:2px 8px;font-size:10px">3星</button>
+              <button class="btn btn-secondary" onclick="app.rateChapter(4)" style="padding:2px 8px;font-size:10px">4星</button>
+              <button class="btn btn-secondary" onclick="app.rateChapter(5)" style="padding:2px 8px;font-size:10px">5星</button>
+            </div>
+            <div id="batch-rating" style="font-size:11px;margin-top:4px">未评分</div>
           </div>
         </div>
       </div>

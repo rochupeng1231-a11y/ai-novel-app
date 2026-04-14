@@ -173,6 +173,118 @@ async function apiWriteStream(chapterId, instruction, context, callbacks) {
   }
 }
 
+// ============ 连贯性（Continuity） ============
+async function apiAnalyzeChapter(chapterId, chapterContent = null) {
+  const body = {chapter_id: chapterId};
+  if (chapterContent !== null) body.chapter_content = chapterContent;
+  const res = await fetch(`${API_BASE}/continuity/analyze`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`分析失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiPreWriteCheck(projectId) {
+  const res = await fetch(`${API_BASE}/continuity/check/${projectId}`);
+  if (!res.ok) throw new Error(`一致性检查失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiUpdateCharacterState(chapterId, characterId, updateData) {
+  const res = await fetch(`${API_BASE}/continuity/state/update?chapter_id=${chapterId}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({character_id: characterId, ...updateData})
+  });
+  if (!res.ok) throw new Error(`更新状态失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiGetProjectSummary(projectId) {
+  const res = await fetch(`${API_BASE}/continuity/summary/${projectId}`);
+  if (!res.ok) throw new Error(`获取摘要失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiGetProjectTimeline(projectId, limit = 50) {
+  const res = await fetch(`${API_BASE}/continuity/timeline/${projectId}?limit=${limit}`);
+  if (!res.ok) throw new Error(`获取时间线失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiGetCharacterStates(projectId) {
+  const res = await fetch(`${API_BASE}/continuity/character_states/${projectId}`);
+  if (!res.ok) throw new Error(`获取角色状态失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiGetTropeWarning(projectId, chapterNumber = 1) {
+  const res = await fetch(`${API_BASE}/continuity/trope/warning/${projectId}?chapter_number=${chapterNumber}`);
+  if (!res.ok) throw new Error(`获取套路警告失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiPlantForeshadowFromOutline(projectId, outline, firstChapterId = null) {
+  const body = {project_id: projectId, outline};
+  if (firstChapterId) body.first_chapter_id = firstChapterId;
+  const res = await fetch(`${API_BASE}/continuity/foreshadow/from_outline`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`埋设伏笔失败: ${res.status}`);
+  return res.json();
+}
+
+// ============ 批量写作 API ============
+async function apiBatchWriteStart(projectId, chapterIds, instruction = '续写') {
+  const res = await fetch(`${API_BASE}/writing/batch/start`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project_id: projectId, chapter_ids: chapterIds, instruction})
+  });
+  if (!res.ok) throw new Error(`批量写作启动失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiBatchWriteGetNextChapter(batchId) {
+  // 获取下一章节信息
+  const res = await fetch(`${API_BASE}/writing/batch/${batchId}/next-chapter`);
+  if (!res.ok) throw new Error(`获取下一章失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiBatchWriteCompleteChapter(batchId, chapterId, content, tensionScore) {
+  // 标记章节写作完成
+  const res = await fetch(`${API_BASE}/writing/batch/${batchId}/complete-chapter`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({chapter_id: chapterId, content, tension_score: tensionScore})
+  });
+  if (!res.ok) throw new Error(`完成章节失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiBatchWriteReview(batchId, action, content = null) {
+  const body = {action};
+  if (content) body.content = content;
+  const res = await fetch(`${API_BASE}/writing/batch/${batchId}/review`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`审核操作失败: ${res.status}`);
+  return res.json();
+}
+
+async function apiBatchWriteStatus(batchId) {
+  const res = await fetch(`${API_BASE}/writing/batch/${batchId}/status`);
+  if (!res.ok) throw new Error(`获取批量写作状态失败: ${res.status}`);
+  return res.json();
+}
+
 window.api = {
   createProject: apiCreateProject,
   getProjects: apiGetProjects,
@@ -183,5 +295,20 @@ window.api = {
   saveChapterVersion: apiSaveChapterVersion,
   createCharacter: apiCreateCharacter,
   createForeshadow: apiCreateForeshadow,
-  writeStream: apiWriteStream
+  writeStream: apiWriteStream,
+  // Continuity
+  analyzeChapter: apiAnalyzeChapter,
+  preWriteCheck: apiPreWriteCheck,
+  updateCharacterState: apiUpdateCharacterState,
+  getProjectSummary: apiGetProjectSummary,
+  getProjectTimeline: apiGetProjectTimeline,
+  getCharacterStates: apiGetCharacterStates,
+  getTropeWarning: apiGetTropeWarning,
+  plantForeshadowFromOutline: apiPlantForeshadowFromOutline,
+  // 批量写作
+  batchWriteStart: apiBatchWriteStart,
+  batchWriteGetNextChapter: apiBatchWriteGetNextChapter,
+  batchWriteCompleteChapter: apiBatchWriteCompleteChapter,
+  batchWriteReview: apiBatchWriteReview,
+  batchWriteStatus: apiBatchWriteStatus
 };

@@ -74,3 +74,20 @@ class WritingResponse(BaseModel):
     content: str
     tension_score: float
     tokens_used: int
+
+
+class BatchWritingRequest(BaseModel):
+    """批量写作请求"""
+    project_id: str
+    chapter_ids: list[str]  # 要写的章节ID列表（按顺序）
+    instruction: str = "续写"
+
+
+class BatchWritingStatus(BaseModel):
+    """批量写作状态"""
+    batch_id: str
+    total_chapters: int
+    current_index: int
+    current_chapter_id: str
+    status: str  # pending/writing/waiting_review/completed
+    current_content: str = ""

@@ -1,10 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working on this codebase.
+
+## Critical Rules
+
+### No Large Files
+- **Backend Python files**: No single file may exceed **200 lines**
+- **Frontend JS files**: No single file may exceed **200 lines**
+- **If a file approaches 150 lines, proactively split it into modules**
+
+### Modularization Required
+- Each file should have a single, clear responsibility
+- Related functionality should be extracted into separate modules
+- Follow the existing patterns in this codebase
+
+### Code Editing
+- Favor simple, modular solutions; keep indentation ≤3 levels
+- Functions should be single-purpose
+- Reuse existing patterns; Tailwind/shadcn defaults for frontend
+- Comments only when intent is non-obvious; keep them short
+- Enforce accessibility, consistent spacing (multiples of 4), ≤2 accent colors
+
+---
 
 ## Overview
 
-AI 写小说 (AI Novel Writing) — a guided novel writing tool with AI generation, real-time tension analysis, and multi-dimensional rollback capabilities.
+AI 写小说 (AI Novel Writing) — a guided novel writing tool with AI generation, real-time tension analysis, continuity tracking, and batch writing with review workflow.
 
 ## Tech Stack
 
@@ -12,27 +33,18 @@ AI 写小说 (AI Novel Writing) — a guided novel writing tool with AI generati
 |-------|------------|
 | Frontend | Vanilla HTML/CSS/JS (no framework, modular) |
 | Backend | FastAPI + Pydantic + SQLAlchemy |
-| AI | MiniMax API (primary), with Kimi/DeepSeek/Claude support via `AIAggregator` |
+| AI | MiniMax API (primary), with Kimi/DeepSeek/Claude support |
 | Database | SQLite (`ai_novel.db`) |
-| Server | uvicorn on port 8000, HTTP server on port 3000 for frontend |
+| Server | uvicorn on port 8000, HTTP server on port 3000 |
 
 ## Commands
 
 ```bash
-# Install dependencies
-.venv/Scripts/pip install -r requirements.txt
-
 # Start backend (development with auto-reload)
-.venv/Scripts/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+cd ai-novel-app && .venv/Scripts/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Start frontend (serves static files on port 3000)
-cd frontend && .venv/Scripts/python -m http.server 3000
-
-# Run tests
-.venv/Scripts/python tests/run_tests.py
-
-# Run a single test file
-.venv/Scripts/python -m pytest tests/backend/api/test_chapters.py -v
+cd ai-novel-app/frontend && .venv/Scripts/python -m http.server 3000
 ```
 
 ## Architecture
@@ -42,71 +54,80 @@ Frontend (Browser)
     │
     ├── HTTP → uvicorn (port 8000) → FastAPI
     │                        │
-    │                        ├── /api/db/*     → database.py (Projects, Chapters, Characters, Relations, Foreshadows CRUD)
-    │                        ├── /api/writing/* → writing.py → WritingEngine → ai_aggregator (MiniMax/Kimi/DeepSeek/Claude)
-    │                        ├── /api/chapters/* → chapters.py (chapter-specific routes)
-    │                        ├── /api/characters/* → characters.py (character routes)
-    │                        └── /api/rollback/* → rollback.py → RollbackEngine (multi-dimensional rollback)
+    │                        ├── /api/db/*           → database.py (CRUD)
+    │                        ├── /api/writing/*      → writing.py (单章节写作)
+    │                        ├── /api/writing/batch* → batch_writing.py (批量写作状态)
+    │                        ├── /api/continuity/*   → continuity.py (连贯性API)
+    │                        ├── /api/rollback/*    → rollback.py
+    │                        └── /api/chapters/*, /api/characters/*
     │
-    └── HTTP → port 3000 static files (index.html, app.js, styles/)
-
-Database (SQLite via SQLAlchemy ORM)
+    └── HTTP → port 3000 static files
 ```
 
-### Key Services
+## Backend API Structure
 
-- **`WritingEngine`** (`backend/services/writing_engine.py`): Core writing orchestration. Routes `续写/润色/改写/概括` instructions through task-type-specific prompts to `ai_aggregator`. Integrates `TensionAnalyzer` for post-generation scoring.
-- **`TensionAnalyzer`** (`backend/services/tension_analyzer.py`): Keyword-based tension analysis on four dimensions (conflict, suspense, emotion, rhythm), each 0.0–1.0. Weights equally for overall score. Used by `WritingEngine` after AI generation and by the frontend tension meter.
-- **`AIAggregator`** (`backend/services/ai_client.py`): Unified AI client with strategy pattern — routes task types to different providers (`outline→deepseek`, `draft→kimi`, `core/polish→claude`). Single global instance `ai_aggregator`.
-- **`RollbackEngine`** (`backend/services/rollback_engine.py`): Tracks `ProjectDependency` records to analyze and execute multi-dimensional rollbacks across chapters, characters, and foreshadows.
-- **`VersionControl`** (`backend/services/version_control.py`): Optimistic locking via version numbers on chapters.
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `api/writing.py` | ~180 | 单章节流式写作 |
+| `api/batch_writing.py` | ~160 | 批量写作状态管理（复用单章API） |
+| `api/continuity.py` | ~250 | 连贯性API端点 |
+| `api/database.py` | ~400 | 数据库CRUD |
+| `api/rollback.py` | ~200 | 回退API |
 
-### API Design
+**API Design Rules**:
+- If an API file exceeds 200 lines, split it
+- Batch writing reuses single-chapter writing API; never duplicate logic
+- Pydantic schemas in `backend/models/schemas.py`
 
-All API routes follow REST patterns. Pydantic `BaseModel` for request/response validation. Database access via SQLAlchemy `Session` dependency injection (`get_db`).
+## Continuity System (连贯性系统)
 
-Notable: `/api/writing/` returns a `WritingResponse` defined in `backend/models/schemas.py`, not inline.
+The continuity system ensures chapter coherence using multiple subsystems:
 
-### Frontend Modules
+| Subsystem | File | Purpose |
+|-----------|------|---------|
+| DOME | `timeline_graph.py` | 时间知识图谱，事件追踪 |
+| SCORE | `state_tracker.py` | 角色/世界状态追踪 |
+| CoKe | `trope_tracker.py` | 防套话检测 |
+| CFPG | `mind_theory.py` | 伏笔三元组管理 |
+| ConStory | `consistency_checker.py` | 情节一致性检验 |
+| BVSR/SWAG | `generation_controller.py` | 生成控制 |
 
-The frontend uses a modular JS architecture (no framework). All modules live in `frontend/modules/`:
+**Key Principle**: All external information must flow through Continuity state tables, not raw chapter content.
 
-| Module | Responsibility |
-|--------|----------------|
-| `modules/state.js` | Global `stateManager` — holds app state, provides setters |
-| `modules/api.js` | All backend HTTP requests, including SSE streaming via `api.writeStream()` |
-| `modules/project.js` | Project CRUD, chapter management, data loading |
-| `modules/outline.js` | Novel type/element selection, outline generation, chapter auto-creation from outline |
-| `modules/writing.js` | Writing operations (续写/润色/改写/概括), real-time tension analysis, word count |
-| `app.js` | Thin orchestrator — wires modules, exposes `window.app`, calls `updateUI()` |
+## Frontend Modules
 
-**Module load order** (in `index.html`): `state.js` → `api.js` → `project.js` → `outline.js` → `writing.js` → `app.js`
+| Module | Max Lines | Responsibility |
+|--------|-----------|----------------|
+| `modules/state.js` | ~100 | Global state manager |
+| `modules/api.js` | ~150 | HTTP requests, SSE handling |
+| `modules/project.js` | ~150 | Project/chapter CRUD |
+| `modules/outline.js` | ~200 | Outline generation |
+| `modules/writing.js` | ~150 | Writing operations |
+| `app.js` | ~200 | Orchestrator, UI wiring |
 
 **Module rules**:
-- Modules export via `window.<moduleName>` (e.g., `window.projectModule`, `window.outlineModule`)
-- Modules access state via `stateManager.state` (from `state.js`)
-- Modules call API via `api.*` functions (from `api.js`)
-- `app.js` is the only file that knows about DOM elements and calls `updateUI()`
-- UI components (`ChapterList`, `TensionMeter`, `RelationGraph`, `KnowledgeBase`) are class-based in `components/`
-- **No file in `frontend/` may exceed ~200 lines. If a module grows beyond that, split it further.**
-- The SSE streaming helper lives in `api.writeStream()` — all streaming requests go through there. Do not write inline SSE parsing in other modules.
+- Export via `window.<moduleName>`
+- Access state via `stateManager.state`
+- Call APIs via `api.*` functions
+- `app.js` is the only file touching DOM directly
+- **If any module approaches 150 lines, split it**
 
-### Database Schema
+## Database Schema
 
-SQLite via SQLAlchemy `Base.metadata.create_all(bind=engine)` at import time in `database.py`. Schema can also be initialized from `database/schema.sql`.
+Key tables: `projects`, `chapters`, `chapter_versions`, `characters`, `character_relations`, `foreshadows`.
 
-Tables: `projects`, `chapters`, `chapter_versions`, `characters`, `character_relations`, `foreshadows`, `project_dependencies`.
+Extended tables for continuity: `timeline_events`, `character_states`, `world_states`, `extracted_facts`, `contradictions`.
 
 ## Configuration
 
-Environment variables in `.env` (copy from `.env.example`):
+Environment variables in `.env`:
 - `MINIMAX_API_KEY` — primary AI provider
-- `KIMI_API_KEY`, `DEEPSEEK_API_KEY`, `CLAUDE_API_KEY` — optional alternatives
+- `KIMI_API_KEY`, `DEEPSEEK_API_KEY`, `CLAUDE_API_KEY` — alternatives
 - `DATABASE_URL` — defaults to `sqlite:///./ai_novel.db`
 
 ## Known Issues
 
-- `frontend/app.js` is the canonical source; ensure it's not 0 bytes before running
-- Tension analysis is keyword-based (rule-based), not ML-powered
-- Rollback engine's `ProjectDependency` tracking requires manual population
-- No user authentication
+- Frontend modules must stay under 200 lines each
+- Backend API files must stay under 200 lines each
+- If editing causes a file to exceed these limits, refactor immediately
+- No user authentication implemented

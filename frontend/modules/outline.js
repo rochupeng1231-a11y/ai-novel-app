@@ -95,9 +95,23 @@ async function generateOutline() {
 
     // ========== 阶段 2: 生成章节标题 ==========
     setProgressInline(20, '生成章节标题...');
+
+    // 获取套路警告（CoKe）
+    let tropeWarning = '';
+    try {
+      const tropeResult = await api.getTropeWarning(projectId, 1);
+      if (tropeResult && tropeResult.has_warning) {
+        tropeWarning = '\n\n' + tropeResult.warning;
+        console.log('[CoKe] 获取到套路警告:', tropeResult.has_warning);
+      }
+    } catch (e) {
+      console.warn('[CoKe] 获取套路警告失败:', e);
+    }
+
     const chaptersPrompt = `基于以下故事主线，生成8-12章的章节标题：
 
 ${mainPlot}
+${tropeWarning}
 
 【输出格式】（必须严格按此格式）
 每行一章：第1章 标题
@@ -274,6 +288,19 @@ ${mainPlot}
         } catch (e) { console.error('[创建伏笔]', f, '失败:', e); }
       }
       console.log('[阶段5] 已创建伏笔', foreshadows.length, '个');
+    }
+
+    // 自动埋设伏笔到Continuity系统（CFPG）
+    try {
+      const firstChapter = stateManager.state.chapters[0];
+      const foreshadowResult = await api.plantForeshadowFromOutline(
+        projectId,
+        fullOutline || `${mainPlot}\n\n${chaptersText}`,
+        firstChapter?.id
+      );
+      console.log('[CFPG] 自动埋设伏笔:', foreshadowResult);
+    } catch (e) {
+      console.warn('[CFPG] 自动埋设伏笔失败:', e);
     }
 
     // ========== 保存项目信息 ==========
